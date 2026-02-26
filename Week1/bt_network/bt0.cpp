@@ -57,7 +57,7 @@ int main()
         string response = "HTTP/1.0 200 OK\r\n"
                             "Content-Type: text/plain\r\n"
                             "\r\n"
-                            "abc";
+                            "abc\r\n";
                             
         write(client_fd, response.c_str(), response.length());
 
