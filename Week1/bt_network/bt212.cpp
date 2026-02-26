@@ -10,7 +10,7 @@ using namespace std;
 const int PORT = 8080;
 const int BUFFER_SIZE = 4096;
 
-void* haddle_client(void* val)
+void* xu_ly(void* val)
 {
     int client_fd = (int)(intptr_t)val;
 
@@ -22,7 +22,7 @@ void* haddle_client(void* val)
     string response = "HTTP/1.0 200 OK\r\n"
                         "Content-Type: text/plain\r\n"
                         "\r\n"
-                        "Hello";
+                        "Hello\r\n";
 
     write(client_fd, response.c_str(), response.length());
     close(client_fd);
@@ -43,7 +43,7 @@ int main()
     }
 
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); // Đảm bảo server tắt ngay để tái sử dụng PORT;
 
     dia_chi.sin_family = AF_INET;
     dia_chi.sin_addr.s_addr = INADDR_ANY;
@@ -71,7 +71,7 @@ int main()
         cout << "Ket noi moi : " << client_fd << endl;
 
         pthread_t tid;
-        pthread_create(&tid, NULL, haddle_client, (void*)(intptr_t)client_fd);
+        pthread_create(&tid, NULL, xu_ly, (void*)(intptr_t)client_fd);
         pthread_detach(tid);
     }
 

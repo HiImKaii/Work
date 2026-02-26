@@ -51,15 +51,15 @@ int main()
         cout << "Sever: " << server_fd << " ; Client: " << client_fd << endl;
 
         char buffer[BUFFER_SIZE] = {0};
-        read(client_fd, buffer, BUFFER_SIZE);
+        ssize_t re = recv(client_fd, buffer, BUFFER_SIZE, 0);
         cout << buffer << endl;
 
         string response = "HTTP/1.0 200 OK\r\n"
                             "Content-Type: text/plain\r\n"
                             "\r\n"
-                            "Hello";
-                            
-        write(client_fd, response.c_str(), response.length());
+                            "Hello\r\n";
+
+        ssize_t sd = send(client_fd, response.c_str(), response.length(), 0);
 
         close(client_fd);
     }
