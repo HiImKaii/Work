@@ -18,8 +18,8 @@ for i in range (1000):
     print (i+1, ": ", x[i], ": ", y[i])
 
 for i in range (1000):
-    tu = (x[i] * y[i]) - ((x[i] * y[i]) / 1000)
-    mau = (x[i] ** 2) - ((x[i] ** 2) / 1000)
+    tu = (x[i] * y[i])
+    mau = (x[i] ** 2)
     a  += tu / mau
 a = a / 1000
 for i in range (1000):
