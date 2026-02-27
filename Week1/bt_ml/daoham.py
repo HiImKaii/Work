@@ -6,10 +6,5 @@ def derivative(f, x):
     df = (f(x+dx) - f(x)) / dx
     return df
 
-def main():
-    x_input = float(input())
-    result = derivative(f, x_input)
-    print(result)
-
-if __name__ == "__main__":
-    main()
+x = 3
+print(derivative(f, x))
