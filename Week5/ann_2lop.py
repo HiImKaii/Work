@@ -1,5 +1,6 @@
 import numpy as np
 import math
+from scipy.special import erf
 
 # Sinh du lieu
 def sinh_du_lieu(n = 100):
@@ -18,15 +19,18 @@ def init_w(m, n):
     return weigh
 
 # Truyen thang
-def relu(z):
-    return np.maximum(0, z)
+# def relu(z):
+#     return np.maximum(0, z)
+
+def gelu(z):
+    return (z / 2) * (1 + erf(z / np.sqrt(2)))
 
 def forward(x, W1, B1, W2, B2, W3, B3):
     Z1 = W1 @ x + B1
-    A1 = relu(Z1)
+    A1 = gelu(Z1)
     
     Z2 = W2 @ A1 + B2
-    A2 = relu(Z2)
+    A2 = gelu(Z2)
     
     Z3 = W3 @ A2 + B3
     
@@ -48,8 +52,11 @@ def gra_loss(y_pred, y):
     return (y_pred - y)
 
 # Truyen nguoc
-def gra_relu(z):
-    return (z > 0).astype(float)
+# def gra_relu(z):
+#     return (z > 0).astype(float)
+
+def gra_gelu(z):
+    return 0.5 * (1 + erf(z / np.sqrt(2))) + (z / np.sqrt(2 * math.pi) * np.exp(-z**2 / 2))
 
 def truyen_nguoc(x, y, y_pred, a1, a2, z1, z2, W2, W3):
     dl_dypred = gra_loss(y_pred, y).reshape(1, 1)
@@ -59,12 +66,12 @@ def truyen_nguoc(x, y, y_pred, a1, a2, z1, z2, W2, W3):
     dl_db3 = dl_dz3
     
     dl_da2 = W3.T @ dl_dz3
-    dl_dz2 = dl_da2 * gra_relu(z2)
+    dl_dz2 = dl_da2 * gra_gelu(z2)
     dl_dw2 = dl_dz2 @ a1.T
     dl_db2 = dl_dz2
     
     dl_da1 = W2.T @ dl_dz2
-    dl_dz1 = dl_da1 * gra_relu(z1)
+    dl_dz1 = dl_da1 * gra_gelu(z1)
     dl_dw1 = dl_dz1 @ x.T
     dl_db1 = dl_dz1
     
@@ -105,7 +112,7 @@ def huan_luyen(X, Y, its = 500, lr = 1e-5):
             
     return W1, B1, W2, B2, W3, B3
 
-W1, B1, W2, B2, W3, B3 = huan_luyen(X, Y, its = 500, lr = 1e-5)
+W1, B1, W2, B2, W3, B3 = huan_luyen(X, Y, its = 500, lr = 1e-3)
 
 print("W1: ", W1)
 print("B1: ", B1)
