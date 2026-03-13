@@ -1,4 +1,4 @@
-use rand::RngExt;
+use rand::Rng;
 
 fn predict(w: f64, b: f64, x: f64) -> f64
 {

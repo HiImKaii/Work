@@ -1,0 +1,12 @@
+/run/media/quan/Quan Vu/Work/Week5/ann/target/debug/deps/getrandom-b2540b562639ac20.d: /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/lib.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/error.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/util.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/error_impls.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/util_libc.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/use_file.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/lazy.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/linux_android_with_fallback.rs
+
+/run/media/quan/Quan Vu/Work/Week5/ann/target/debug/deps/libgetrandom-b2540b562639ac20.rmeta: /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/lib.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/error.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/util.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/error_impls.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/util_libc.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/use_file.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/lazy.rs /home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/linux_android_with_fallback.rs
+
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/lib.rs:
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/error.rs:
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/util.rs:
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/error_impls.rs:
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/util_libc.rs:
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/use_file.rs:
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/lazy.rs:
+/home/quan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.17/src/linux_android_with_fallback.rs:
