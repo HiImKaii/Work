@@ -111,7 +111,7 @@ void execute(const vector<string>& tokens)
     vector<char*> args;
     for (auto& t : cmd)
     {
-        args.push_back(const_cast<char*>(t.c_str()));
+        args.push_back(const_cast<char*>(t.c_str())); // const_cast: ép kiểu, do hàm c_str trả về const char * mà hàm thực thi lại không làm việc với const nên cần ép kiểu.
     }
     args.push_back(nullptr); // execvp yeu cau 1 mang co phan tu cuoi la nullptr;
 
