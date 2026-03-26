@@ -1,4 +1,0 @@
-/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-a0946d441f51bd4f/out/build/CMakeFiles/_CMakeLTOTest-C/bin/CMakeFiles/foo.dir
-/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-a0946d441f51bd4f/out/build/CMakeFiles/_CMakeLTOTest-C/bin/CMakeFiles/boo.dir
-/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-a0946d441f51bd4f/out/build/CMakeFiles/_CMakeLTOTest-C/bin/CMakeFiles/edit_cache.dir
-/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-a0946d441f51bd4f/out/build/CMakeFiles/_CMakeLTOTest-C/bin/CMakeFiles/rebuild_cache.dir

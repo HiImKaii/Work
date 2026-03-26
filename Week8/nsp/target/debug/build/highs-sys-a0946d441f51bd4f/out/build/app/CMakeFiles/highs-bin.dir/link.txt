@@ -1,1 +1,0 @@
-/usr/bin/c++  -ffunction-sections -fdata-sections -fPIC -m64 -w -std=c++11 -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/highs-bin.dir/link.d "CMakeFiles/highs-bin.dir/RunHighs.cpp.o" -o ../bin/highs  -Wl,-rpath,:::::::::::::::::::::::: ../lib64/libhighs.a

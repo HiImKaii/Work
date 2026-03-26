@@ -1,1 +1,0 @@
-/usr/bin/c++  -ffunction-sections -fdata-sections -fPIC -m64 -w -std=c++11 -g -flto=auto -fno-fat-lto-objects CMakeFiles/boo.dir/main.cpp.o -o boo  libfoo.a
