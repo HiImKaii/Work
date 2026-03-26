@@ -1,0 +1,13 @@
+[package]
+name = "Week8"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+good_lp = { version = "1", default-features = false, features = ["highs"] }
+
+# Optional: nicer numeric formatting in reports
+num-format = "0.4"
+
+# Optional: ergonomic error handling in main
+anyhow = "1"

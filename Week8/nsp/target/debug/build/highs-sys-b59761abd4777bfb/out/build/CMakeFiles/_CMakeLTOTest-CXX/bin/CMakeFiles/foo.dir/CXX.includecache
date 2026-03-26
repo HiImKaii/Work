@@ -1,0 +1,10 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-b59761abd4777bfb/out/build/CMakeFiles/_CMakeLTOTest-CXX/src/foo.cpp
+

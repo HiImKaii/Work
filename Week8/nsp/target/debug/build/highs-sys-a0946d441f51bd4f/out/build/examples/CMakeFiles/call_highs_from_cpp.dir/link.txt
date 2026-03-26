@@ -1,0 +1,1 @@
+/usr/bin/c++  -ffunction-sections -fdata-sections -fPIC -m64 -w -std=c++11 -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/call_highs_from_cpp.dir/link.d CMakeFiles/call_highs_from_cpp.dir/call_highs_from_cpp.cpp.o -o ../bin/call_highs_from_cpp  ../lib64/libhighs.a

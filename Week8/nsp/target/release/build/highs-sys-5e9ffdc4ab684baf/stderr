@@ -1,0 +1,10 @@
+running: cd "/home/aime/Desktop/Work/Week8/nsp/target/release/build/highs-sys-5e9ffdc4ab684baf/out/build" && CMAKE_PREFIX_PATH="" LC_ALL="C" "cmake" "/home/aime/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/highs-sys-1.12.1/HiGHS" "-B" "/home/aime/Desktop/Work/Week8/nsp/target/release/build/highs-sys-5e9ffdc4ab684baf/out/build" "-DFAST_BUILD=ON" "-DBUILD_SHARED_LIBS=OFF" "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL" "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=FALSE" "-DZLIB=OFF" "-DCMAKE_INSTALL_PREFIX=/home/aime/Desktop/Work/Week8/nsp/target/release/build/highs-sys-5e9ffdc4ab684baf/out" "-DCMAKE_C_FLAGS= -ffunction-sections -fdata-sections -fPIC -m64 -w" "-DCMAKE_C_COMPILER=/usr/bin/cc" "-DCMAKE_CXX_FLAGS= -ffunction-sections -fdata-sections -fPIC -m64 -w" "-DCMAKE_CXX_COMPILER=/usr/bin/c++" "-DCMAKE_ASM_FLAGS= -ffunction-sections -fdata-sections -fPIC -m64 -w" "-DCMAKE_ASM_COMPILER=/usr/bin/cc" "-DCMAKE_BUILD_TYPE=Release"
+/home/aime/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/highs-sys-1.12.1/HiGHS/examples/call_highs_from_c_minimal.c
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CMAKE_ASM_COMPILER
+    CMAKE_ASM_FLAGS
+
+
+running: cd "/home/aime/Desktop/Work/Week8/nsp/target/release/build/highs-sys-5e9ffdc4ab684baf/out/build" && LC_ALL="C" MAKEFLAGS="-j --jobserver-fds=8,9 --jobserver-auth=8,9" "cmake" "--build" "/home/aime/Desktop/Work/Week8/nsp/target/release/build/highs-sys-5e9ffdc4ab684baf/out/build" "--target" "install" "--config" "Release"

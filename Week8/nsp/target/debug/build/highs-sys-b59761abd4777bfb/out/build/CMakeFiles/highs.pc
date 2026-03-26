@@ -1,0 +1,12 @@
+prefix=/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-b59761abd4777bfb/out
+libdir=/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-b59761abd4777bfb/out/lib64
+includedir=/home/aime/Desktop/Work/Week8/nsp/target/debug/build/highs-sys-b59761abd4777bfb/out/include/highs
+
+Name: HiGHS
+Description: Linear Optimization Software
+URL: https://github.com/ERGO-Code/HiGHS
+Version: 1.11.0
+Libs: -L${libdir} -lhighs
+#TODO Libs.private (when HiGHS lib is build as static lib)
+Cflags: -I${includedir}
+Requires:
