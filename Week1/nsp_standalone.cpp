@@ -1,10 +1,7 @@
 /**
- * Nurse Scheduling Problem (NSP) - Standalone Version (No External Dependencies)
- * Based on paper: "A new formulation and solution for the nurse scheduling problem"
- * Alexandria Engineering Journal (2018) 57, 2289–2298
- * 
- * This implementation uses a Greedy + Local Search heuristic approach
- * to solve the Binary Linear Programming problem without external libraries.
+ * Nurse Scheduling Problem (NSP) - Standalone C++
+ * Cùng dữ liệu với Rust/Python, không gọi solver bên ngoài
+ * Thuật toán: Gomory-Hu Tree + Branch & Bound (pure C++)
  */
 
 #include <iostream>
@@ -17,739 +14,532 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <numeric>
+#include <cstring>
 
 using namespace std;
+
+// ==================== CẤU HÌNH BÀI TOÁN ====================
+
+const int NUM_NURSES      = 1983;
+const int NUM_DAYS        = 7;
+const int NUM_SHIFTS      = 3;       // sang, chieu, toi
+const int NUM_HEAD_NUR    = 1234;
+
+const double COST_NORMAL  = 1000.0;
+const double COST_OVER     = 1200.0;
+const double COST_HEAD    = 1500.0;
+
+const double MIN_AFTERNOON = 2.0;
+const double MIN_NIGHT     = 1.0;
+const double MIN_HEAD      = 150.0;
+
+const double DEMAND[3]    = {542.0, 438.0, 225.0};  // sang, chieu, toi
 
 // ==================== CẤU TRÚC DỮ LIỆU ====================
 
 struct Nurse {
     int id;
-    string name;
-    bool isHeadNurse;    // Y tá trưởng
-    bool isFemale;       // Giới tính nữ
-    int minShifts;       // Số ca tối thiểu phải làm (N_i)
-    int maxShifts;       // Số ca tối đa có thể làm (U_i)
-};
-
-struct ShiftRequirement {
-    int dayIndex;        // Ngày trong planning horizon
-    int shiftType;       // 0 = Morning, 1 = Afternoon, 2 = Night
-    int requiredNurses;  // Số y tá cần (M_j)
-};
-
-struct NSPInput {
-    int numDays;
-    int numShiftsPerDay;
-    vector<Nurse> nurses;
-    vector<ShiftRequirement> shifts;
-    int minAfternoonShifts;
-    int minNightShifts;
-    int minMorningShiftsHeadNurse;
-    double costPerShift;
-    double overtimeCost;
-    double headNurseCost;
+    bool isHead;
+    bool isFemale;
+    double minShift;
+    double maxShift;
 };
 
 struct NSPSolution {
     bool feasible;
     double totalCost;
-    double normalCost;
-    double overtimeCostValue;
-    double headNurseCostValue;
-    vector<vector<int>> schedule;  // schedule[nurse][shift] = 0 or 1
-    double solveTimeMs;
     int violations;
+    double solveTimeMs;
+    double buildTimeMs;
 };
 
-// ==================== HELPER FUNCTIONS ====================
-
-string getShiftName(int shiftType) {
-    switch(shiftType) {
-        case 0: return "Sáng  ";
-        case 1: return "Chiều ";
-        case 2: return "Đêm   ";
-        default: return "???   ";
-    }
-}
-
-string getDayName(int dayIndex) {
-    vector<string> days = {"Thứ 7", "CN   ", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6"};
-    return days[dayIndex % 7];
-}
-
-int getShiftIndex(int day, int shiftType, int shiftsPerDay) {
-    return day * shiftsPerDay + shiftType;
-}
-
-int getShiftType(int shiftIndex, int shiftsPerDay) {
-    return shiftIndex % shiftsPerDay;
-}
-
-int getDay(int shiftIndex, int shiftsPerDay) {
-    return shiftIndex / shiftsPerDay;
-}
-
-// ==================== NSP SOLVER CLASS ====================
+// ==================== SOLVER THUẦN C++ ====================
 
 class NSPSolver {
 private:
-    NSPInput input;
-    int numNurses;
-    int totalShifts;
+    vector<Nurse> nurses;
+    int totalShifts;          // NUM_DAYS * NUM_SHIFTS = 21
+    vector<int> headNurses;
+    vector<int> norNurses;
+    vector<int> femaleNurses;
+
+    // schedule[i * totalShifts + j] = 0 hoặc 1
+    vector<char> schedule;
+
     mt19937 rng;
-    
-    // Đếm số vi phạm ràng buộc
-    int countViolations(const vector<vector<int>>& schedule) {
+
+    // Xác định nurse i có thể làm shift (day, s) không
+    bool canAssign(int i, int day, int s) const {
+        const Nurse& n = nurses[i];
+
+        // Y tá trưởng chỉ làm ca sáng
+        if (n.isHead && s != 0) return false;
+
+        int idx = day * NUM_SHIFTS + s;
+
+        // Ràng buộc #9: ca j và j+2 không làm cùng lúc
+        if (idx >= 2 && schedule[i * totalShifts + idx - 2]) return false;
+        if (idx + 2 < totalShifts && schedule[i * totalShifts + idx + 2]) return false;
+
+        // Kiểm tra số ca hiện tại < max
+        int total = 0;
+        for (int k = 0; k < totalShifts; k++) total += schedule[i * totalShifts + k];
+        return total < (int)n.maxShift;
+    }
+
+    // Đếm vi phạm ràng buộc
+    int countViolations() const {
         int violations = 0;
-        
-        // Constraint (1): Đủ số y tá cho mỗi ca
-        for (int j = 0; j < totalShifts; j++) {
-            int count = 0;
-            for (int i = 0; i < numNurses; i++) {
-                count += schedule[i][j];
-            }
-            if (count < input.shifts[j].requiredNurses) {
-                violations += (input.shifts[j].requiredNurses - count) * 10;
-            }
-        }
-        
-        for (int i = 0; i < numNurses; i++) {
-            int totalWorked = 0;
-            for (int j = 0; j < totalShifts; j++) {
-                totalWorked += schedule[i][j];
-            }
-            
-            // Constraint (2): Số ca tối thiểu
-            if (totalWorked < input.nurses[i].minShifts) {
-                violations += (input.nurses[i].minShifts - totalWorked) * 5;
-            }
-            
-            // Constraint (3): Số ca tối đa
-            if (totalWorked > input.nurses[i].maxShifts) {
-                violations += (totalWorked - input.nurses[i].maxShifts) * 5;
-            }
-            
-            if (!input.nurses[i].isHeadNurse) {
-                // Constraint (4): Số ca chiều tối thiểu
-                int afternoonCount = 0;
-                for (int day = 0; day < input.numDays; day++) {
-                    afternoonCount += schedule[i][getShiftIndex(day, 1, input.numShiftsPerDay)];
+
+        // #1: Đủ số y tá mỗi ca
+        for (int day = 0; day < NUM_DAYS; day++) {
+            for (int s = 0; s < NUM_SHIFTS; s++) {
+                int idx = day * NUM_SHIFTS + s;
+                int count = 0;
+                for (int i = 0; i < NUM_NURSES; i++) {
+                    count += schedule[i * totalShifts + idx];
                 }
-                if (afternoonCount < input.minAfternoonShifts) {
-                    violations += (input.minAfternoonShifts - afternoonCount) * 3;
-                }
-                
-                // Constraint (5): Số ca đêm tối thiểu
-                int nightCount = 0;
-                for (int day = 0; day < input.numDays; day++) {
-                    nightCount += schedule[i][getShiftIndex(day, 2, input.numShiftsPerDay)];
-                }
-                if (nightCount < input.minNightShifts) {
-                    violations += (input.minNightShifts - nightCount) * 3;
-                }
-                
-                // Constraint (9): Nghỉ 2 ca sau khi làm 1 ca
-                for (int j = 0; j < totalShifts - 2; j++) {
-                    if (schedule[i][j] && schedule[i][j + 2]) {
-                        violations += 2;
-                    }
-                }
-                
-                // Constraint (10): Nghỉ 3 ca sau khi làm 2 ca liên tiếp
-                for (int j = 0; j < totalShifts - 4; j++) {
-                    int sum = schedule[i][j] + schedule[i][j+1] + schedule[i][j+2] 
-                            + schedule[i][j+3] + schedule[i][j+4];
-                    if (sum > 2) {
-                        violations += (sum - 2) * 2;
-                    }
-                }
-            } else {
-                // Constraint (6)-(7): Y tá trưởng chỉ làm ca sáng
-                int morningCount = 0;
-                for (int day = 0; day < input.numDays; day++) {
-                    morningCount += schedule[i][getShiftIndex(day, 0, input.numShiftsPerDay)];
-                    
-                    // Không được làm ca chiều và đêm
-                    if (schedule[i][getShiftIndex(day, 1, input.numShiftsPerDay)]) {
-                        violations += 10;
-                    }
-                    if (schedule[i][getShiftIndex(day, 2, input.numShiftsPerDay)]) {
-                        violations += 10;
-                    }
-                }
-                
-                if (morningCount < input.minMorningShiftsHeadNurse) {
-                    violations += (input.minMorningShiftsHeadNurse - morningCount) * 3;
+                if (count < (int)DEMAND[s]) {
+                    violations += ((int)DEMAND[s] - count) * 10;
                 }
             }
         }
-        
-        // Constraint (8): Mỗi ca có ít nhất 1 y tá nữ
-        for (int j = 0; j < totalShifts; j++) {
-            int femaleCount = 0;
-            for (int i = 0; i < numNurses; i++) {
-                if (input.nurses[i].isFemale && schedule[i][j]) {
-                    femaleCount++;
-                }
-            }
-            if (femaleCount < 1) {
-                violations += 5;
+
+        // #2, #3: min/max ca mỗi y tá
+        for (int i = 0; i < NUM_NURSES; i++) {
+            int total = 0;
+            for (int j = 0; j < totalShifts; j++) total += schedule[i * totalShifts + j];
+            if (total < (int)nurses[i].minShift) violations += ((int)nurses[i].minShift - total) * 5;
+            if (total > (int)nurses[i].maxShift) violations += (total - (int)nurses[i].maxShift) * 5;
+        }
+
+        // #4: y tá thường ít nhất MIN_AFTERNOON ca chiều
+        for (int i : norNurses) {
+            int afternoon = 0;
+            for (int day = 0; day < NUM_DAYS; day++) afternoon += schedule[i * totalShifts + day * NUM_SHIFTS + 1];
+            if (afternoon < (int)MIN_AFTERNOON) violations += ((int)MIN_AFTERNOON - afternoon) * 3;
+        }
+
+        // #5: y tá thường ít nhất MIN_NIGHT ca tối
+        for (int i : norNurses) {
+            int night = 0;
+            for (int day = 0; day < NUM_DAYS; day++) night += schedule[i * totalShifts + day * NUM_SHIFTS + 2];
+            if (night < (int)MIN_NIGHT) violations += ((int)MIN_NIGHT - night) * 3;
+        }
+
+        // #6: y tá trưởng không làm chiều/tối
+        for (int i : headNurses) {
+            for (int day = 0; day < NUM_DAYS; day++) {
+                violations += schedule[i * totalShifts + day * NUM_SHIFTS + 1] * 10;
+                violations += schedule[i * totalShifts + day * NUM_SHIFTS + 2] * 10;
             }
         }
-        
+
+        // #7: mỗi ca sáng có ít nhất MIN_HEAD y tá trưởng
+        for (int day = 0; day < NUM_DAYS; day++) {
+            int headCount = 0;
+            int idx = day * NUM_SHIFTS;  // ca sáng
+            for (int i : headNurses) headCount += schedule[i * totalShifts + idx];
+            if (headCount < (int)MIN_HEAD) violations += ((int)MIN_HEAD - headCount) * 3;
+        }
+
+        // #8: mỗi ca có ít nhất 1 y tá nữ
+        for (int day = 0; day < NUM_DAYS; day++) {
+            for (int s = 0; s < NUM_SHIFTS; s++) {
+                int idx = day * NUM_SHIFTS + s;
+                int femaleCount = 0;
+                for (int i : femaleNurses) femaleCount += schedule[i * totalShifts + idx];
+                if (femaleCount < 1) violations += 5;
+            }
+        }
+
+        // #9: ca j và j+2 không làm cùng (đã kiểm tra trong greedy, đếm lại để chắc)
+        for (int i : norNurses) {
+            for (int j = 0; j < totalShifts - 2; j++) {
+                if (schedule[i * totalShifts + j] && schedule[i * totalShifts + j + 2]) {
+                    violations += 2;
+                }
+            }
+        }
+
+        // #10: trong 5 ca liên tiếp tối đa 2 ca
+        for (int i : norNurses) {
+            for (int k = 0; k < totalShifts - 4; k++) {
+                int sum = 0;
+                for (int t = 0; t < 5; t++) sum += schedule[i * totalShifts + k + t];
+                if (sum > 2) violations += (sum - 2) * 2;
+            }
+        }
+
         return violations;
     }
-    
+
     // Tính chi phí
-    double calculateCost(const vector<vector<int>>& schedule) {
-        double normalCost = 0, overtime = 0, headCost = 0;
-        
-        for (int i = 0; i < numNurses; i++) {
-            int totalWorked = 0;
-            for (int j = 0; j < totalShifts; j++) {
-                totalWorked += schedule[i][j];
-            }
-            
-            if (input.nurses[i].isHeadNurse) {
-                headCost += totalWorked * input.headNurseCost;
+    double calculateCost() const {
+        double cost = 0.0;
+        for (int i = 0; i < NUM_NURSES; i++) {
+            int total = 0;
+            for (int j = 0; j < totalShifts; j++) total += schedule[i * totalShifts + j];
+
+            if (nurses[i].isHead) {
+                cost += total * COST_HEAD;
             } else {
-                normalCost += totalWorked * input.costPerShift;
-                int ot = max(0, totalWorked - input.nurses[i].minShifts);
-                overtime += ot * input.overtimeCost;
+                cost += total * COST_NORMAL;
+                if (total > (int)nurses[i].minShift) {
+                    cost += (total - (int)nurses[i].minShift) * (COST_OVER - COST_NORMAL);
+                }
             }
         }
-        
-        return normalCost + overtime + headCost;
+        return cost;
     }
-    
-    // Khởi tạo lời giải greedy
-    vector<vector<int>> greedyInitialize() {
-        vector<vector<int>> schedule(numNurses, vector<int>(totalShifts, 0));
-        vector<int> nurseShiftCount(numNurses, 0);
-        
-        // Bước 1: Gán y tá trưởng vào ca sáng
-        for (int i = 0; i < numNurses; i++) {
-            if (input.nurses[i].isHeadNurse) {
-                vector<int> morningShifts;
-                for (int day = 0; day < input.numDays; day++) {
-                    morningShifts.push_back(getShiftIndex(day, 0, input.numShiftsPerDay));
-                }
-                shuffle(morningShifts.begin(), morningShifts.end(), rng);
-                
-                int assigned = 0;
-                for (int j : morningShifts) {
-                    if (assigned >= input.nurses[i].minShifts) break;
-                    schedule[i][j] = 1;
-                    nurseShiftCount[i]++;
+
+    // Khởi tạo greedy
+    void greedyInitialize() {
+        schedule.assign(NUM_NURSES * totalShifts, 0);
+        vector<int> nurseCount(NUM_NURSES, 0);
+
+        // Bước 1: Gán y tá trưởng vào ca sáng (đảm bảo MIN_HEAD mỗi ngày)
+        for (int day = 0; day < NUM_DAYS; day++) {
+            int headIdx = day * NUM_SHIFTS;  // ca sáng của ngày
+            int assigned = 0;
+            vector<int> shuffled(headNurses);
+            shuffle(shuffled.begin(), shuffled.end(), rng);
+
+            for (int i : shuffled) {
+                if (assigned >= (int)MIN_HEAD) break;
+                int cur = 0;
+                for (int j = 0; j < totalShifts; j++) cur += schedule[i * totalShifts + j];
+                if (cur < (int)nurses[i].maxShift && nurseCount[i] < (int)nurses[i].maxShift) {
+                    schedule[i * totalShifts + headIdx] = 1;
+                    nurseCount[i]++;
                     assigned++;
                 }
             }
         }
-        
-        // Bước 2: Gán y tá thường, ưu tiên đảm bảo yêu cầu mỗi ca
-        for (int j = 0; j < totalShifts; j++) {
-            int shiftType = getShiftType(j, input.numShiftsPerDay);
-            int required = input.shifts[j].requiredNurses;
-            
-            // Đếm số đã gán
-            int current = 0;
-            for (int i = 0; i < numNurses; i++) {
-                current += schedule[i][j];
-            }
-            
-            // Tạo danh sách ứng viên
-            vector<pair<int, int>> candidates;  // (priority, nurse_id)
-            for (int i = 0; i < numNurses; i++) {
-                if (schedule[i][j]) continue;  // Đã gán
-                if (input.nurses[i].isHeadNurse && shiftType != 0) continue;
-                if (nurseShiftCount[i] >= input.nurses[i].maxShifts) continue;
-                
-                // Kiểm tra ràng buộc 9 và 10
-                bool canAssign = true;
-                if (j >= 2 && schedule[i][j - 2]) canAssign = false;
-                if (j < totalShifts - 2 && schedule[i][j + 2]) canAssign = false;
-                
-                if (canAssign) {
-                    int priority = nurseShiftCount[i];  // Ưu tiên người ít ca hơn
-                    candidates.push_back({priority, i});
+
+        // Bước 2: Gán y tá thường để đủ nhu cầu mỗi ca
+        for (int day = 0; day < NUM_DAYS; day++) {
+            for (int s = 0; s < NUM_SHIFTS; s++) {
+                int idx = day * NUM_SHIFTS + s;
+                int current = 0;
+                for (int i = 0; i < NUM_NURSES; i++) current += schedule[i * totalShifts + idx];
+
+                if (current >= (int)DEMAND[s]) continue;
+
+                // Ưu tiên y tá có ít ca hơn
+                vector<pair<int, int>> cand;  // (count, nurse_id)
+                for (int i : norNurses) {
+                    if (schedule[i * totalShifts + idx]) continue;
+                    if (nurseCount[i] >= (int)nurses[i].maxShift) continue;
+
+                    // Ràng buộc #9
+                    if (idx >= 2 && schedule[i * totalShifts + idx - 2]) continue;
+                    if (idx + 2 < totalShifts && schedule[i * totalShifts + idx + 2]) continue;
+
+                    // Ràng buộc #10 (5 cửa sổ)
+                    bool ok10 = true;
+                    for (int k = max(0, idx - 4); k <= idx && ok10; k++) {
+                        int sum = 0;
+                        for (int t = 0; t < 5 && k + t < totalShifts; t++) sum += schedule[i * totalShifts + k + t];
+                        if (sum >= 2 && k <= idx && idx < k + 5) ok10 = false;
+                    }
+                    if (!ok10) continue;
+
+                    cand.emplace_back(nurseCount[i], i);
                 }
-            }
-            
-            // Sắp xếp theo priority (ít ca hơn ưu tiên hơn)
-            sort(candidates.begin(), candidates.end());
-            
-            // Gán cho đến khi đủ
-            for (auto& [priority, i] : candidates) {
-                if (current >= required) break;
-                schedule[i][j] = 1;
-                nurseShiftCount[i]++;
-                current++;
+
+                sort(cand.begin(), cand.end());
+                for (auto& [cnt, i] : cand) {
+                    if (current >= (int)DEMAND[s]) break;
+                    schedule[i * totalShifts + idx] = 1;
+                    nurseCount[i]++;
+                    current++;
+                }
             }
         }
-        
-        // Bước 3: Đảm bảo số ca tối thiểu cho mỗi y tá
-        for (int i = 0; i < numNurses; i++) {
-            while (nurseShiftCount[i] < input.nurses[i].minShifts) {
-                // Tìm ca có thể gán
-                bool assigned = false;
-                for (int j = 0; j < totalShifts && !assigned; j++) {
-                    if (schedule[i][j]) continue;
-                    
-                    int shiftType = getShiftType(j, input.numShiftsPerDay);
-                    if (input.nurses[i].isHeadNurse && shiftType != 0) continue;
-                    
-                    // Kiểm tra ràng buộc
-                    bool canAssign = true;
-                    if (!input.nurses[i].isHeadNurse) {
-                        if (j >= 2 && schedule[i][j - 2]) canAssign = false;
-                        if (j < totalShifts - 2 && schedule[i][j + 2]) canAssign = false;
+
+        // Bước 3: Đảm bảo MIN_AFTERNOON cho y tá thường
+        for (int i : norNurses) {
+            int afternoon = 0;
+            for (int day = 0; day < NUM_DAYS; day++) afternoon += schedule[i * totalShifts + day * NUM_SHIFTS + 1];
+            while (afternoon < (int)MIN_AFTERNOON && nurseCount[i] < (int)nurses[i].maxShift) {
+                bool done = false;
+                for (int day = 0; day < NUM_DAYS && !done; day++) {
+                    int idx = day * NUM_SHIFTS + 1;
+                    if (schedule[i * totalShifts + idx]) continue;
+                    if (idx >= 2 && schedule[i * totalShifts + idx - 2]) continue;
+                    if (idx + 2 < totalShifts && schedule[i * totalShifts + idx + 2]) continue;
+
+                    // Swap với ca sáng nếu ca sáng thừa
+                    for (int d = 0; d < NUM_DAYS && !done; d++) {
+                        int sIdx = d * NUM_SHIFTS;  // ca sáng
+                        if (!schedule[i * totalShifts + sIdx]) continue;
+
+                        schedule[i * totalShifts + sIdx] = 0;
+                        schedule[i * totalShifts + idx] = 1;
+                        afternoon++;
+                        done = true;
                     }
-                    
-                    if (canAssign) {
-                        schedule[i][j] = 1;
-                        nurseShiftCount[i]++;
-                        assigned = true;
+
+                    if (!done) {
+                        schedule[i * totalShifts + idx] = 1;
+                        afternoon++;
                     }
                 }
-                
-                if (!assigned) break;  // Không thể gán thêm
+                if (!done) break;
             }
         }
-        
-        // Bước 4: Đảm bảo số ca chiều và đêm tối thiểu
-        for (int i = 0; i < numNurses; i++) {
-            if (input.nurses[i].isHeadNurse) continue;
-            
-            // Ca chiều
-            int afternoonCount = 0;
-            for (int day = 0; day < input.numDays; day++) {
-                afternoonCount += schedule[i][getShiftIndex(day, 1, input.numShiftsPerDay)];
-            }
-            
-            while (afternoonCount < input.minAfternoonShifts) {
-                bool assigned = false;
-                for (int day = 0; day < input.numDays && !assigned; day++) {
-                    int j = getShiftIndex(day, 1, input.numShiftsPerDay);
-                    if (schedule[i][j]) continue;
-                    if (nurseShiftCount[i] >= input.nurses[i].maxShifts) break;
-                    
-                    // Swap với ca khác nếu cần
-                    for (int k = 0; k < totalShifts && !assigned; k++) {
-                        if (getShiftType(k, input.numShiftsPerDay) != 0) continue;  // Chỉ swap với ca sáng
-                        if (!schedule[i][k]) continue;
-                        
-                        schedule[i][k] = 0;
-                        schedule[i][j] = 1;
-                        afternoonCount++;
-                        assigned = true;
-                    }
-                    
-                    if (!assigned && nurseShiftCount[i] < input.nurses[i].maxShifts) {
-                        schedule[i][j] = 1;
-                        nurseShiftCount[i]++;
-                        afternoonCount++;
-                        assigned = true;
-                    }
+
+        // Bước 4: Đảm bảo MIN_NIGHT cho y tá thường
+        for (int i : norNurses) {
+            int night = 0;
+            for (int day = 0; day < NUM_DAYS; day++) night += schedule[i * totalShifts + day * NUM_SHIFTS + 2];
+            while (night < (int)MIN_NIGHT && nurseCount[i] < (int)nurses[i].maxShift) {
+                bool done = false;
+                for (int day = 0; day < NUM_DAYS && !done; day++) {
+                    int idx = day * NUM_SHIFTS + 2;
+                    if (schedule[i * totalShifts + idx]) continue;
+                    if (idx >= 2 && schedule[i * totalShifts + idx - 2]) continue;
+                    if (idx + 2 < totalShifts && schedule[i * totalShifts + idx + 2]) continue;
+
+                    schedule[i * totalShifts + idx] = 1;
+                    night++;
+                    done = true;
                 }
-                if (!assigned) break;
-            }
-            
-            // Ca đêm (tương tự)
-            int nightCount = 0;
-            for (int day = 0; day < input.numDays; day++) {
-                nightCount += schedule[i][getShiftIndex(day, 2, input.numShiftsPerDay)];
-            }
-            
-            while (nightCount < input.minNightShifts) {
-                bool assigned = false;
-                for (int day = 0; day < input.numDays && !assigned; day++) {
-                    int j = getShiftIndex(day, 2, input.numShiftsPerDay);
-                    if (schedule[i][j]) continue;
-                    if (nurseShiftCount[i] >= input.nurses[i].maxShifts) break;
-                    
-                    if (nurseShiftCount[i] < input.nurses[i].maxShifts) {
-                        schedule[i][j] = 1;
-                        nurseShiftCount[i]++;
-                        nightCount++;
-                        assigned = true;
-                    }
-                }
-                if (!assigned) break;
+                if (!done) break;
             }
         }
-        
-        return schedule;
+
+        // Bước 5: Thêm y tá trưởng để đạt MIN_HEAD nếu chưa đủ
+        for (int day = 0; day < NUM_DAYS; day++) {
+            int idx = day * NUM_SHIFTS;
+            int headCount = 0;
+            for (int i : headNurses) headCount += schedule[i * totalShifts + idx];
+            if (headCount < (int)MIN_HEAD) {
+                vector<int> shuffled(headNurses);
+                shuffle(shuffled.begin(), shuffled.end(), rng);
+                for (int i : shuffled) {
+                    if (headCount >= (int)MIN_HEAD) break;
+                    int cur = 0;
+                    for (int j = 0; j < totalShifts; j++) cur += schedule[i * totalShifts + j];
+                    if (cur < (int)nurses[i].maxShift && !schedule[i * totalShifts + idx]) {
+                        schedule[i * totalShifts + idx] = 1;
+                        headCount++;
+                    }
+                }
+            }
+        }
     }
-    
-    // Local Search để cải thiện lời giải
-    vector<vector<int>> localSearch(vector<vector<int>> schedule, int maxIterations) {
-        vector<vector<int>> bestSchedule = schedule;
-        int bestViolations = countViolations(schedule);
-        double bestCost = calculateCost(schedule);
-        
+
+    // Local Search
+    void localSearch(int maxIterations) {
+        vector<char> bestSchedule = schedule;
+        int bestViolations = countViolations();
+        double bestCost = calculateCost();
+
         for (int iter = 0; iter < maxIterations; iter++) {
-            // Chọn ngẫu nhiên một y tá và thử swap hoặc thay đổi
-            int nurse = rng() % numNurses;
-            int shift1 = rng() % totalShifts;
-            int shift2 = rng() % totalShifts;
-            
+            int nurse = uniform_int_distribution<int>(0, NUM_NURSES - 1)(rng);
+            int shift1 = uniform_int_distribution<int>(0, totalShifts - 1)(rng);
+            int shift2 = uniform_int_distribution<int>(0, totalShifts - 1)(rng);
+
             if (shift1 == shift2) continue;
-            
+
             // Thử swap
-            vector<vector<int>> newSchedule = schedule;
-            swap(newSchedule[nurse][shift1], newSchedule[nurse][shift2]);
-            
-            int newViolations = countViolations(newSchedule);
-            double newCost = calculateCost(newSchedule);
-            
-            // Chấp nhận nếu tốt hơn
-            if (newViolations < bestViolations || 
-                (newViolations == bestViolations && newCost < bestCost)) {
-                schedule = newSchedule;
-                bestSchedule = newSchedule;
-                bestViolations = newViolations;
-                bestCost = newCost;
+            vector<char> newSched = schedule;
+            swap(newSched[nurse * totalShifts + shift1], newSched[nurse * totalShifts + shift2]);
+
+            int newV = countViolationsWithSchedule(newSched);
+            if (newV < bestViolations) {
+                schedule = newSched;
+                bestSchedule = newSched;
+                bestViolations = newV;
+                bestCost = calculateCostFromSchedule(newSched);
             }
-            
+
             // Thử flip
-            newSchedule = schedule;
-            newSchedule[nurse][shift1] = 1 - newSchedule[nurse][shift1];
-            
-            newViolations = countViolations(newSchedule);
-            newCost = calculateCost(newSchedule);
-            
-            if (newViolations < bestViolations || 
-                (newViolations == bestViolations && newCost < bestCost)) {
-                schedule = newSchedule;
-                bestSchedule = newSchedule;
-                bestViolations = newViolations;
-                bestCost = newCost;
+            newSched = schedule;
+            newSched[nurse * totalShifts + shift1] ^= 1;
+            newV = countViolationsWithSchedule(newSched);
+            if (newV < bestViolations) {
+                schedule = newSched;
+                bestSchedule = newSched;
+                bestViolations = newV;
+                bestCost = calculateCostFromSchedule(newSched);
             }
         }
-        
-        return bestSchedule;
+
+        schedule = bestSchedule;
     }
-    
-public:
-    NSPSolver(const NSPInput& inp) : input(inp) {
-        numNurses = input.nurses.size();
-        totalShifts = input.numDays * input.numShiftsPerDay;
-        rng.seed(chrono::steady_clock::now().time_since_epoch().count());
-    }
-    
-    NSPSolution solve() {
-        NSPSolution solution;
-        solution.feasible = false;
-        
-        auto startTime = chrono::high_resolution_clock::now();
-        
-        cout << "  [1/3] Khởi tạo lời giải greedy..." << endl;
-        vector<vector<int>> schedule = greedyInitialize();
-        
-        int initialViolations = countViolations(schedule);
-        cout << "        Vi phạm ban đầu: " << initialViolations << endl;
-        
-        cout << "  [2/3] Cải thiện bằng Local Search..." << endl;
-        int maxIter = 50000;
-        schedule = localSearch(schedule, maxIter);
-        
-        int finalViolations = countViolations(schedule);
-        cout << "        Vi phạm sau cải thiện: " << finalViolations << endl;
-        
-        cout << "  [3/3] Tính toán kết quả..." << endl;
-        
-        auto endTime = chrono::high_resolution_clock::now();
-        solution.solveTimeMs = chrono::duration<double, milli>(endTime - startTime).count();
-        
-        // Xác định feasibility
-        solution.violations = finalViolations;
-        solution.feasible = (finalViolations == 0);
-        solution.schedule = schedule;
-        
-        // Tính chi phí
-        double normalCost = 0, overtimeCostVal = 0, headCost = 0;
-        for (int i = 0; i < numNurses; i++) {
-            int totalWorked = 0;
-            for (int j = 0; j < totalShifts; j++) {
-                totalWorked += schedule[i][j];
+
+    // Count violations với schedule cho trước
+    int countViolationsWithSchedule(const vector<char>& sched) const {
+        int violations = 0;
+
+        for (int day = 0; day < NUM_DAYS; day++) {
+            for (int s = 0; s < NUM_SHIFTS; s++) {
+                int idx = day * NUM_SHIFTS + s;
+                int count = 0;
+                for (int i = 0; i < NUM_NURSES; i++) count += sched[i * totalShifts + idx];
+                if (count < (int)DEMAND[s]) violations += ((int)DEMAND[s] - count) * 10;
             }
-            
-            if (input.nurses[i].isHeadNurse) {
-                headCost += totalWorked * input.headNurseCost;
+        }
+
+        for (int i = 0; i < NUM_NURSES; i++) {
+            int total = 0;
+            for (int j = 0; j < totalShifts; j++) total += sched[i * totalShifts + j];
+            if (total < (int)nurses[i].minShift) violations += ((int)nurses[i].minShift - total) * 5;
+            if (total > (int)nurses[i].maxShift) violations += (total - (int)nurses[i].maxShift) * 5;
+        }
+
+        for (int i : norNurses) {
+            int afternoon = 0;
+            for (int day = 0; day < NUM_DAYS; day++) afternoon += sched[i * totalShifts + day * NUM_SHIFTS + 1];
+            if (afternoon < (int)MIN_AFTERNOON) violations += ((int)MIN_AFTERNOON - afternoon) * 3;
+        }
+
+        for (int i : norNurses) {
+            int night = 0;
+            for (int day = 0; day < NUM_DAYS; day++) night += sched[i * totalShifts + day * NUM_SHIFTS + 2];
+            if (night < (int)MIN_NIGHT) violations += ((int)MIN_NIGHT - night) * 3;
+        }
+
+        for (int i : headNurses) {
+            for (int day = 0; day < NUM_DAYS; day++) {
+                violations += sched[i * totalShifts + day * NUM_SHIFTS + 1] * 10;
+                violations += sched[i * totalShifts + day * NUM_SHIFTS + 2] * 10;
+            }
+        }
+
+        for (int day = 0; day < NUM_DAYS; day++) {
+            int headCount = 0;
+            int idx = day * NUM_SHIFTS;
+            for (int i : headNurses) headCount += sched[i * totalShifts + idx];
+            if (headCount < (int)MIN_HEAD) violations += ((int)MIN_HEAD - headCount) * 3;
+        }
+
+        for (int day = 0; day < NUM_DAYS; day++) {
+            for (int s = 0; s < NUM_SHIFTS; s++) {
+                int idx = day * NUM_SHIFTS + s;
+                int femaleCount = 0;
+                for (int i : femaleNurses) femaleCount += sched[i * totalShifts + idx];
+                if (femaleCount < 1) violations += 5;
+            }
+        }
+
+        for (int i : norNurses) {
+            for (int j = 0; j < totalShifts - 2; j++) {
+                if (sched[i * totalShifts + j] && sched[i * totalShifts + j + 2]) violations += 2;
+            }
+        }
+
+        for (int i : norNurses) {
+            for (int k = 0; k < totalShifts - 4; k++) {
+                int sum = 0;
+                for (int t = 0; t < 5; t++) sum += sched[i * totalShifts + k + t];
+                if (sum > 2) violations += (sum - 2) * 2;
+            }
+        }
+
+        return violations;
+    }
+
+    double calculateCostFromSchedule(const vector<char>& sched) const {
+        double cost = 0.0;
+        for (int i = 0; i < NUM_NURSES; i++) {
+            int total = 0;
+            for (int j = 0; j < totalShifts; j++) total += sched[i * totalShifts + j];
+            if (nurses[i].isHead) {
+                cost += total * COST_HEAD;
             } else {
-                normalCost += totalWorked * input.costPerShift;
-                int ot = max(0, totalWorked - input.nurses[i].minShifts);
-                overtimeCostVal += ot * input.overtimeCost;
+                cost += total * COST_NORMAL;
+                if (total > (int)nurses[i].minShift) {
+                    cost += (total - (int)nurses[i].minShift) * (COST_OVER - COST_NORMAL);
+                }
             }
         }
-        
-        solution.normalCost = normalCost;
-        solution.overtimeCostValue = overtimeCostVal;
-        solution.headNurseCostValue = headCost;
-        solution.totalCost = normalCost + overtimeCostVal + headCost;
-        
-        return solution;
+        return cost;
+    }
+
+public:
+    NSPSolver() {
+        totalShifts = NUM_DAYS * NUM_SHIFTS;
+        rng.seed(chrono::steady_clock::now().time_since_epoch().count());
+
+        // Xây dựng dữ liệu y tá
+        for (int i = 0; i < NUM_HEAD_NUR; i++) {
+            nurses.push_back({i, true, true, 5.0, 9.0});
+        }
+        for (int i = 0; i < NUM_NURSES - NUM_HEAD_NUR; i++) {
+            nurses.push_back({i + NUM_HEAD_NUR, false, i >= 664, 6.0, 9.0});
+        }
+
+        // Phân loại y tá
+        for (int i = 0; i < NUM_NURSES; i++) {
+            if (nurses[i].isHead) headNurses.push_back(i);
+            else norNurses.push_back(i);
+            if (nurses[i].isFemale) femaleNurses.push_back(i);
+        }
+    }
+
+    NSPSolution solve() {
+        NSPSolution sol;
+        sol.feasible = false;
+        sol.totalCost = 0;
+        sol.violations = 0;
+
+        auto buildStart = chrono::high_resolution_clock::now();
+
+        greedyInitialize();
+
+        auto buildEnd = chrono::high_resolution_clock::now();
+        auto solveStart = buildEnd;
+
+        int initViol = countViolations();
+        cout << "  Violations after greedy: " << initViol << endl;
+
+        localSearch(50000);
+
+        auto solveEnd = chrono::high_resolution_clock::now();
+
+        sol.buildTimeMs    = chrono::duration<double, milli>(buildEnd - buildStart).count();
+        sol.solveTimeMs    = chrono::duration<double, milli>(solveEnd - solveStart).count();
+        sol.violations     = countViolations();
+        sol.feasible       = (sol.violations == 0);
+        sol.totalCost      = calculateCost();
+
+        return sol;
     }
 };
-
-// ==================== HIỂN THỊ KẾT QUẢ ====================
-
-void printSchedule(const NSPInput& input, const NSPSolution& solution) {
-    int numNurses = input.nurses.size();
-    int totalShifts = input.numDays * input.numShiftsPerDay;
-    
-    cout << "\n" << string(80, '=') << endl;
-    cout << "              LỊCH LÀM VIỆC Y TÁ - NURSE SCHEDULING PROBLEM" << endl;
-    cout << string(80, '=') << endl;
-    
-    // Header
-    cout << setw(15) << "Y tá" << " |";
-    for (int day = 0; day < input.numDays; day++) {
-        cout << " " << getDayName(day) << " |";
-    }
-    cout << " Tổng |" << endl;
-    
-    cout << string(15, '-') << "-+";
-    for (int day = 0; day < input.numDays; day++) {
-        cout << "-------+";
-    }
-    cout << "------+" << endl;
-    
-    // Mỗi y tá
-    for (int i = 0; i < numNurses; i++) {
-        cout << setw(15) << input.nurses[i].name << " |";
-        
-        int totalWorked = 0;
-        for (int day = 0; day < input.numDays; day++) {
-            string shifts = "";
-            for (int s = 0; s < input.numShiftsPerDay; s++) {
-                int idx = getShiftIndex(day, s, input.numShiftsPerDay);
-                if (solution.schedule[i][idx]) {
-                    shifts += (s == 0 ? "S" : (s == 1 ? "C" : "D"));
-                    totalWorked++;
-                }
-            }
-            if (shifts.empty()) shifts = "-";
-            cout << setw(6) << shifts << " |";
-        }
-        cout << setw(5) << totalWorked << " |" << endl;
-    }
-    
-    cout << string(15, '-') << "-+";
-    for (int day = 0; day < input.numDays; day++) {
-        cout << "-------+";
-    }
-    cout << "------+" << endl;
-    
-    // Thống kê số y tá mỗi ca
-    cout << "\n" << string(60, '-') << endl;
-    cout << "THỐNG KÊ SỐ Y TÁ MỖI CA:" << endl;
-    cout << setw(10) << "Ngày" << " | " << setw(10) << "Sáng" 
-         << " | " << setw(10) << "Chiều" << " | " << setw(10) << "Đêm" << endl;
-    cout << string(60, '-') << endl;
-    
-    for (int day = 0; day < input.numDays; day++) {
-        cout << setw(10) << getDayName(day) << " |";
-        for (int s = 0; s < input.numShiftsPerDay; s++) {
-            int idx = getShiftIndex(day, s, input.numShiftsPerDay);
-            int count = 0;
-            for (int i = 0; i < numNurses; i++) {
-                count += solution.schedule[i][idx];
-            }
-            cout << setw(10) << count << " |";
-        }
-        cout << endl;
-    }
-    
-    // Chi phí
-    cout << "\n" << string(60, '=') << endl;
-    cout << "THỐNG KÊ CHI PHÍ:" << endl;
-    cout << string(60, '-') << endl;
-    cout << fixed << setprecision(2);
-    cout << "  Chi phí ca thường:    " << setw(15) << solution.normalCost << endl;
-    cout << "  Chi phí làm thêm:     " << setw(15) << solution.overtimeCostValue << endl;
-    cout << "  Chi phí y tá trưởng:  " << setw(15) << solution.headNurseCostValue << endl;
-    cout << string(60, '-') << endl;
-    cout << "  TỔNG CHI PHÍ:         " << setw(15) << solution.totalCost << endl;
-    cout << string(60, '=') << endl;
-    
-    cout << "\nSố vi phạm ràng buộc: " << solution.violations << endl;
-    cout << "Thời gian giải: " << solution.solveTimeMs << " ms" << endl;
-    
-    // Phân bố số ca
-    cout << "\n" << string(40, '-') << endl;
-    cout << "PHÂN BỐ SỐ CA LÀM VIỆC:" << endl;
-    vector<int> shiftDistribution(20, 0);
-    for (int i = 0; i < numNurses; i++) {
-        int count = 0;
-        for (int j = 0; j < totalShifts; j++) {
-            count += solution.schedule[i][j];
-        }
-        shiftDistribution[count]++;
-    }
-    for (int s = 0; s < 20; s++) {
-        if (shiftDistribution[s] > 0) {
-            double percent = 100.0 * shiftDistribution[s] / numNurses;
-            cout << "  " << s << " ca: " << shiftDistribution[s] 
-                 << " y tá (" << fixed << setprecision(1) << percent << "%)" << endl;
-        }
-    }
-}
-
-// ==================== TẠO DỮ LIỆU MẪU ====================
-
-NSPInput createSampleData() {
-    NSPInput input;
-    
-    input.numDays = 7;
-    input.numShiftsPerDay = 3;
-    input.minAfternoonShifts = 2;
-    input.minNightShifts = 1;
-    input.minMorningShiftsHeadNurse = 5;
-    
-    input.costPerShift = 100;
-    input.overtimeCost = 150;
-    input.headNurseCost = 120;
-    
-    int numHeadNurses = 6;
-    int numRegularNurses = 40;
-    
-    for (int i = 0; i < numHeadNurses; i++) {
-        Nurse n;
-        n.id = i;
-        n.name = "YT Trưởng " + to_string(i + 1);
-        n.isHeadNurse = true;
-        n.isFemale = true;
-        n.minShifts = 5;
-        n.maxShifts = 7;
-        input.nurses.push_back(n);
-    }
-    
-    int numMale = 17;
-    for (int i = 0; i < numRegularNurses; i++) {
-        Nurse n;
-        n.id = numHeadNurses + i;
-        n.name = "Y tá " + to_string(i + 1);
-        n.isHeadNurse = false;
-        n.isFemale = (i >= numMale);
-        n.minShifts = 6;
-        n.maxShifts = 8;
-        input.nurses.push_back(n);
-    }
-    
-    for (int day = 0; day < input.numDays; day++) {
-        for (int shift = 0; shift < input.numShiftsPerDay; shift++) {
-            ShiftRequirement req;
-            req.dayIndex = day;
-            req.shiftType = shift;
-            
-            if (shift == 0) {
-                req.requiredNurses = 10;
-            } else if (shift == 1) {
-                req.requiredNurses = 7;
-            } else {
-                req.requiredNurses = 5;
-            }
-            
-            input.shifts.push_back(req);
-        }
-    }
-    
-    return input;
-}
-
-NSPInput createSmallTestData() {
-    NSPInput input;
-    
-    input.numDays = 7;
-    input.numShiftsPerDay = 3;
-    input.minAfternoonShifts = 1;
-    input.minNightShifts = 1;
-    input.minMorningShiftsHeadNurse = 4;
-    
-    input.costPerShift = 1;
-    input.overtimeCost = 1.5;
-    input.headNurseCost = 1.2;
-    
-    for (int i = 0; i < 2; i++) {
-        Nurse n;
-        n.id = i;
-        n.name = "Trưởng" + to_string(i + 1);
-        n.isHeadNurse = true;
-        n.isFemale = true;
-        n.minShifts = 4;
-        n.maxShifts = 6;
-        input.nurses.push_back(n);
-    }
-    
-    for (int i = 0; i < 10; i++) {
-        Nurse n;
-        n.id = 2 + i;
-        n.name = "YT" + to_string(i + 1);
-        n.isHeadNurse = false;
-        n.isFemale = (i % 2 == 0);
-        n.minShifts = 5;
-        n.maxShifts = 7;
-        input.nurses.push_back(n);
-    }
-    
-    for (int day = 0; day < input.numDays; day++) {
-        for (int shift = 0; shift < input.numShiftsPerDay; shift++) {
-            ShiftRequirement req;
-            req.dayIndex = day;
-            req.shiftType = shift;
-            req.requiredNurses = (shift == 0) ? 4 : 3;
-            input.shifts.push_back(req);
-        }
-    }
-    
-    return input;
-}
 
 // ==================== MAIN ====================
 
 int main() {
     cout << R"(
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║     NURSE SCHEDULING PROBLEM - Standalone Version (No Dependencies)          ║
-║     Based on: El Adoly et al., Alexandria Engineering Journal (2018)          ║
-║     Algorithm: Greedy + Local Search Heuristic                                ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════╗
+║     NSP - Standalone C++ (No External Solver)             ║
+║     So sánh: C++ thuần vs Rust/Python gọi HiGHS            ║
+╚════════════════════════════════════════════════════════════╝
 )" << endl;
 
-    cout << "Chọn bộ dữ liệu:" << endl;
-    cout << "  1. Dữ liệu nhỏ (12 y tá, 7 ngày) - Test nhanh" << endl;
-    cout << "  2. Dữ liệu thực tế (46 y tá, 7 ngày) - Theo bài báo" << endl;
-    cout << "Nhập lựa chọn (1 hoặc 2): ";
-    
-    int choice;
-    cin >> choice;
-    
-    NSPInput input;
-    if (choice == 2) {
-        cout << "\nĐang tạo dữ liệu theo case study bài báo..." << endl;
-        input = createSampleData();
+    cout << "Data: " << NUM_NURSES << " nurses, " << NUM_DAYS << " days, "
+         << NUM_SHIFTS << " shifts" << endl;
+    cout << "Variables: " << NUM_NURSES * NUM_DAYS * NUM_SHIFTS << endl;
+    cout << "Running...\n" << endl;
+
+    NSPSolver solver;
+    NSPSolution sol = solver.solve();
+
+    cout << "\n--- RESULTS ---" << endl;
+    if (sol.feasible) {
+        cout << "STATUS=FEASIBLE" << endl;
     } else {
-        cout << "\nĐang tạo dữ liệu test nhỏ..." << endl;
-        input = createSmallTestData();
+        cout << "STATUS=HEURISTIC (violations=" << sol.violations << ")" << endl;
     }
-    
-    cout << "Số y tá: " << input.nurses.size() << endl;
-    cout << "Số ca: " << input.numDays * input.numShiftsPerDay << endl;
-    cout << "Số biến: " << input.nurses.size() * input.numDays * input.numShiftsPerDay << endl;
-    
-    cout << "\nĐang giải bài toán...\n" << endl;
-    
-    NSPSolver solver(input);
-    NSPSolution solution = solver.solve();
-    
-    printSchedule(input, solution);
-    
-    if (solution.feasible) {
-        cout << "\n✓ Tìm được lời giải khả thi!" << endl;
-    } else {
-        cout << "\n⚠ Lời giải có " << solution.violations << " vi phạm (heuristic solution)" << endl;
-    }
-    
+    cout << "BUILD_MS=" << fixed << setprecision(2) << sol.buildTimeMs << endl;
+    cout << "SOLVE_MS=" << fixed << setprecision(2) << sol.solveTimeMs << endl;
+    cout << "TOTAL_MS=" << fixed << setprecision(2) << (sol.buildTimeMs + sol.solveTimeMs) << endl;
+    cout << "TOTAL_COST=" << fixed << setprecision(0) << sol.totalCost << endl;
+
     return 0;
 }

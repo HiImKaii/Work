@@ -8,7 +8,7 @@ const SHIFTS: [&str; 3] = ["sang", "chieu", "toi"];
 const NUM_SHIFTS_PER_DAY: usize = SHIFTS.len();
 const NUM_HEAD_NUR: usize = 1234;
 
-const COST_NORMAL: f64 = 1000.0;
+const COST_NORMAL: f64 = 1000.0; 
 const COST_OVERTIME: f64 = 1200.0;
 const COST_HEAD: f64 = 1500.0;
 

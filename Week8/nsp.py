@@ -166,7 +166,7 @@ for i in nor_nurses:
             lpSum(x[i, d, s] for d, s in window) <= 2
         )
 
-problem.solve(HiGHS_CMD(msg = 0))
+problem.solve(HiGHS())
 
 if problem.status == 1:
     print("SUCCESS")
