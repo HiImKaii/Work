@@ -3,22 +3,22 @@ use good_lp::{highs, variable, variables, Solution, SolverModel};
 fn main() {
     let mut vars = variables!();
 
-    let t1 = vars.add(variable().integer().min(0.0));
-    let t2 = vars.add(variable().integer().min(0.0));
+    let a = vars.add(variable().min(0.0));
+    let b = vars.add(variable().min(0.0));
 
-    let objective = -(90.0 * t1 + 110.0 * t2);
+    let objective = 10.0 * a + 12.0 * b;
 
     let mut model = vars.minimise(objective).using(highs);
 
-    model = model.with((2.0 * t1 + 4.0 * t2).leq(7000.0));
-    model = model.with((t1 + 2.5 * t2).leq(4000.0));
-    model = model.with((2.0 * t1 + 1.5 * t2).leq(5500.0));
+    model = model.with((40.0 * a + 30.0 * b).geq(150.0));
+    model = model.with((20.0 * a + 20.0 * b).geq(90.0));
+    model = model.with((10.0 * a + 30.0 * b).geq(60.0));
 
     let solution = model.solve().unwrap();
 
-    println!("Gói A: {}", solution.value(t1));
-    println!("Gói B: {}", solution.value(t2));
+    println!("Gói A: {}", solution.value(a));
+    println!("Gói B: {}", solution.value(b));
 
-    let z = 90.0 * solution.value(t1) + 110.0 * solution.value(t2);
+    let z = 10.0 * solution.value(a) + 12.0 * solution.value(b);
     println!("Z =: {}", z);
 }
