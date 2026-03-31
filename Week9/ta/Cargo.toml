@@ -1,0 +1,13 @@
+[package]
+name = "ta"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+good_lp = { path = "/home/aime/Desktop/good_lp", default-features = false, features = ["highs"] }
+
+# Optional: nicer numeric formatting in reports
+num-format = "0.4"
+
+# Optional: ergonomic error handling in main
+anyhow = "1"
