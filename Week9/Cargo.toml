@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "bus",
+    "qa",
+    "stock",
+    "store",
+    "ta",
+    "table",
+    "toy",
+    "van_chuyen",
+    "lich",
+    "hoaChat",
+]
+]
+resolver = "2"

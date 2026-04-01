@@ -1,4 +1,4 @@
-use good_lp::{highs, default_solver, variable, variables, Solution, SolverModel};
+use good_lp::{highs, variable, variables, Solution, SolverModel};
 
 fn main() {
     let mut vars = variables!();
