@@ -1,6 +1,9 @@
 [package]
 name = "hoaChat"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+good_lp = { path = "/home/aime/Desktop/good_lp", default-features = false, features = ["highs"] }
+num-format = "0.4"
+anyhow = "1"
