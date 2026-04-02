@@ -1,0 +1,7 @@
+[package]
+name = "test-puma"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+puma-optimizer = { path = "/home/aime/Desktop/PO/crates/puma-optimizer" }
