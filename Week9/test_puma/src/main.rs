@@ -1,46 +1,31 @@
 //! Nurse Scheduling Problem (NSP) — solved with Puma Optimizer.
-//!
-//! Mô hình hoá bài toán phân ca y tá:
-//! - NUM_NURSES = 100 y tá
-//! - NUM_DAYS   = 7 ngày
-//! - 3 ca/ngày: sang, chieu, toi
-//!
-//! Yêu cầu:
-//!  1. Đủ số y tá mỗi ca
-//!  2. Min/max ca mỗi y tá
-//!  3. Head nurse ≥ 150 mỗi ca sáng
-//!  4. Head nurse không làm chiều/tối
-//!  5. ≥ 1 nữ mỗi ca
-//!  6. Không làm 2 ca liên tiếp
-//!  7. Trong 5 ca liên tiếp: ≤ 2 ca tối
+//! ĐÚNG scale như Week8/nsp.py: 1983 nurses × 7 days × 3 shifts = 41643 vars
 
 use puma_optimizer::{ObjectiveFunction, PumaSolver, PumaParams};
 
-const NUM_NURSES: usize = 20;
-const NUM_DAYS: usize = 3;
+const NUM_NURSES: usize = 1983;
+const NUM_DAYS: usize = 7;
 const NUM_SHIFTS: usize = 3; // 0=sang, 1=chieu, 2=toi
-const NUM_SLOTS: usize = NUM_DAYS * NUM_SHIFTS; // 9
+const NUM_SLOTS: usize = NUM_DAYS * NUM_SHIFTS; // 21
 
-const NUM_HEAD: usize = 5;
-const NUM_NOR: usize = NUM_NURSES - NUM_HEAD; // 15
+const NUM_HEAD: usize = 1234; // từ nsp.py: NUM_HEAD_NUR = 1234
+const NUM_NOR: usize = NUM_NURSES - NUM_HEAD; // 749
 
 const COST_NORMAL: f64 = 1000.0;
 const COST_OVERTIME: f64 = 1200.0;
 const COST_HEAD: f64 = 1500.0;
 
-const MIN_SHIFT_NOR: usize = 2;
-const MAX_SHIFT_NOR: usize = 6;
-const MIN_SHIFT_HEAD: usize = 0;
-const MAX_SHIFT_HEAD: usize = 6;
+const MIN_SHIFT_NOR: usize = 6;
+const MAX_SHIFT_NOR: usize = 9;
 
-const MIN_HEAD_PER_SANG: usize = 1; // tối thiểu head mỗi ca sáng
+const MIN_HEAD_PER_SANG: usize = 150; // từ nsp.py: MIN_HEAD = 150
 
-const MIN_CHIEU: usize = 1;
+const MIN_CHIEU: usize = 2;
 const MIN_TOI: usize = 1;
 
-const NEED_SANG: usize = 5;
-const NEED_CHIEU: usize = 4;
-const NEED_TOI: usize = 3;
+const NEED_SANG: usize = 542;  // từ nsp.py
+const NEED_CHIEU: usize = 438;
+const NEED_TOI: usize = 225;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NSP Objective Function
@@ -54,8 +39,8 @@ impl ObjectiveFunction for NSPObjective {
         // x[slot * NUM_NURSES + nurse] = continuous [0,1]
         // slot = d * NUM_SHIFTS + s
 
-        let big_m = 1e6;
-        let lambda = 5000.0; // penalty weight
+        let big_m = 1e12;
+        let lambda = 1e10; // penalty weight — phải >> salary cost (~14M)
 
         // ── 1. Chi phí lương ────────────────────────────────────────────────
         let mut cost = 0.0;
@@ -154,8 +139,15 @@ impl ObjectiveFunction for NSPObjective {
             cost += lambda * viol * viol;
         }
 
-        // Ràng buộc 8: ≥ 1 nữ mỗi ca (giả sử 60% là nữ, chọn 12 nurse cuối)
-        let females: Vec<usize> = (NUM_NURSES - 12..NUM_NURSES).collect();
+        // Ràng buộc 8: ≥ 1 nữ mỗi ca
+        // Từ nsp.py:
+        // - Head nurses (0..1233): is_female=True
+        // - Normal nurses (1234..1982): is_female=True if offset >= 664 → ids 1898..1982
+        // Female ids: 0..1233 (head) + 1898..1982 (normal) = 1234 + 85 = 1319 nurses
+        let nor_female_start = NUM_HEAD + 664; // 1234 + 664 = 1898
+        let nor_female_end = NUM_NURSES; // 1983
+        let mut females: Vec<usize> = (0..NUM_HEAD).collect();
+        females.extend(nor_female_start..nor_female_end);
         for slot in 0..NUM_SLOTS {
             let n_female: f64 = females.iter()
                 .map(|&n| x[slot * NUM_NURSES + n].clamp(0.0, 1.0))
@@ -202,47 +194,47 @@ impl ObjectiveFunction for NSPObjective {
 // ─────────────────────────────────────────────────────────────────────────────
 // Giải & in kết quả
 // ─────────────────────────────────────────────────────────────────────────────
+// Chạy 1 lần, trả về best_cost + raw_salary + violations_count
+// ─────────────────────────────────────────────────────────────────────────────
 
-fn main() {
-    println!("╔══════════════════════════════════════════════════════╗");
-    println!("║     Nurse Scheduling Problem — Puma Optimizer       ║");
-    println!("╚══════════════════════════════════════════════════════╝");
-    println!();
-    println!("Problem size: {} nurses × {} days × {} shifts = {} vars",
-        NUM_NURSES, NUM_DAYS, NUM_SLOTS, NUM_NURSES * NUM_SLOTS);
-
+fn run_once(run_idx: usize) -> (f64, f64, usize) {
     let dim = NUM_NURSES * NUM_SLOTS;
     let params = PumaParams {
-        n_pumas: 50,
-        max_iter: 500,
+        n_pumas: 100,
+        max_iter: 2000,
         dim,
         lb: vec![0.0; dim],
         ub: vec![1.0; dim],
-        seed: Some(42),
-        verbose: true,
+        seed: Some(run_idx as u64 * 12345),
+        verbose: false,
         ..Default::default()
     };
 
-    println!("\nRunning Puma Optimizer...");
-    println!("{}", "-".repeat(55));
-
     let solver = PumaSolver::with_params(params);
     let result = solver.optimize(&NSPObjective);
-
-    println!("{}", "-".repeat(55));
-    println!();
-    println!("Best cost = {:.2}", result.best_cost);
-    println!("Iterations = {}", result.n_iterations);
-    println!("Function evals = {}", result.n_function_evaluations);
-
-    // ── Phân tích kết quả ─────────────────────────────────────────────────
-    println!();
-    println!("══════════ KẾT QUẢ CHI TIẾT ══════════");
     let x = &result.best_x;
 
-    let shift_names = ["Sang", "Chieu", "Toi"];
+    // ── Raw salary ─────────────────────────────────────────────────────
+    let mut total_cost = 0.0;
+    for nurse in 0..NUM_NURSES {
+        let is_head = nurse < NUM_HEAD;
+        let mut n_shifts = 0i32;
+        for slot in 0..NUM_SLOTS {
+            let val = x[slot * NUM_NURSES + nurse].clamp(0.0, 1.0).round() as i32;
+            n_shifts += val;
+        }
+        if is_head {
+            total_cost += COST_HEAD * n_shifts as f64;
+        } else {
+            let ot = (n_shifts - MIN_SHIFT_NOR as i32).max(0);
+            total_cost += COST_NORMAL * n_shifts as f64
+                        + (COST_OVERTIME - COST_NORMAL) * ot as f64;
+        }
+    }
 
-    println!("\n--- Số y tá mỗi ca ---");
+    // ── Count violations ────────────────────────────────────────────────
+    let mut violations = 0_usize;
+
     for d in 0..NUM_DAYS {
         for s in 0..NUM_SHIFTS {
             let slot = d * NUM_SHIFTS + s;
@@ -254,45 +246,62 @@ fn main() {
                 1 => NEED_CHIEU,
                 _ => NEED_TOI,
             };
-            let ok = if count.round() as usize >= need { "✅" } else { "❌" };
-            println!("  Ngày {} ca {}: {:>4.0}/{}  {}",
-                d + 1, shift_names[s], count, need, ok);
+            if (count.round() as usize) < need {
+                violations += 1;
+            }
         }
     }
 
-    println!("\n--- Ca sáng: head nurses ---");
     for d in 0..NUM_DAYS {
         let slot = d * NUM_SHIFTS;
         let count: f64 = (0..NUM_HEAD)
             .map(|n| x[slot * NUM_NURSES + n].clamp(0.0, 1.0).round())
             .sum();
-        let ok = if count.round() as usize >= MIN_HEAD_PER_SANG { "✅" } else { "❌" };
-        println!("  Ngày {}: {:>4.0}/{} head nurses  {}", d + 1, count, MIN_HEAD_PER_SANG, ok);
-    }
-
-    println!("\n--- Tổng chi phí (≈) ---");
-    let mut total_cost = 0.0;
-    let mut total_shifts = 0;
-    for nurse in 0..NUM_NURSES {
-        let is_head = nurse < NUM_HEAD;
-        let mut n_shifts = 0i32;
-        for slot in 0..NUM_SLOTS {
-            let val = x[slot * NUM_NURSES + nurse].clamp(0.0, 1.0).round() as i32;
-            n_shifts += val;
-        }
-        total_shifts += n_shifts;
-
-        if is_head {
-            total_cost += (COST_HEAD * n_shifts as f64).round();
-        } else {
-            let ot = (n_shifts - MIN_SHIFT_NOR as i32).max(0);
-            total_cost += COST_NORMAL * n_shifts as f64
-                        + (COST_OVERTIME - COST_NORMAL) * ot as f64;
+        if (count.round() as usize) < MIN_HEAD_PER_SANG {
+            violations += 1;
         }
     }
-    println!("  Tổng chi phí ≈ {:.0}", total_cost.round());
-    println!("  Tổng số ca làm = {}", total_shifts);
 
+    (result.best_cost, total_cost.round() as f64, violations)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn main() {
+    println!("╔══════════════════════════════════════════════════════╗");
+    println!("║     Nurse Scheduling Problem — Puma Optimizer       ║");
+    println!("╚══════════════════════════════════════════════════════╝");
+    println!();
+    println!("Problem: {} nurses × {} days × {} shifts = {} vars",
+        NUM_NURSES, NUM_DAYS, NUM_SLOTS, NUM_NURSES * NUM_SLOTS);
+    println!("Config: pumas=100, iter=2000, λ=1e10, big_M=1e12");
+    println!("Runs: 10 (lấy best fitness)");
+    println!("{}", "─".repeat(60));
+
+    let runs = 10;
+    let mut best_cost = f64::INFINITY;
+    let mut best_raw = f64::INFINITY;
+    let mut best_viol = usize::MAX;
+
+    for i in 0..runs {
+        let (cost, raw, viol) = run_once(i);
+        print!("\r  Run {:2}/{} | fitness={:>20.2} | raw={:>10.0} | viol={:>3}",
+            i + 1, runs, cost, raw, viol);
+        if cost < best_cost {
+            best_cost = cost;
+            best_raw = raw;
+            best_viol = viol;
+        }
+    }
+
+    println!();
+    println!("{}", "─".repeat(60));
+    println!("  BEST fitness = {:.2}", best_cost);
+    println!("  BEST raw salary = {:.0}", best_raw);
+    println!("  BEST violations = {}", best_viol);
+    println!();
+    println!("  vs Python PuLP: total_cost = 13,925,400 | violations = 0");
+    println!("  vs Rust good_lp: total_cost = 13,925,400 | violations = 0");
     println!();
     println!("══════════════════════════════════════════════════════");
     println!("Đã hoàn thành!");

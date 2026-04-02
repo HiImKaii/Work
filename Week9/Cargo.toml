@@ -11,6 +11,8 @@ members = [
     "lich",
     "hoaChat",
     "phancong",
-    "test_puma", "pc2",
+    "test_puma",
+    "pc2",
+    "vc",
 ]
 resolver = "2"
