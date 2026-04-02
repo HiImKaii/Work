@@ -9,6 +9,7 @@ members = [
     "toy",
     "van_chuyen",
     "lich",
-    "hoaChat",
+    "hoaChat", 
+    "phancong",
 ]
 resolver = "2"
